@@ -6,6 +6,7 @@ WIDTH = 500
 HEIGHT = 500
 SIZE = (WIDTH, HEIGHT)
 screen = pygame.display.set_mode(SIZE)
+time = 0
 
 FPS = 60
 clock = pygame.time.Clock()
@@ -177,6 +178,13 @@ class NPC(AnimatedSprite):
         self.mask = pygame.mask.from_surface(self.image)
 
 
+class Enemy(AnimatedSprite):
+    images = [[load_image('Enemy 06-1.png'), [3] * 4]]
+
+    def __init__(self, enemy_type, x, y, *groups):
+        super().__init__(self.images[enemy_type][0], self.images[enemy_type][1], x, y, *groups)
+
+
 def generate_level(level):
     new_player, x, y = None, None, None
     x_player = y_player = None
@@ -223,6 +231,22 @@ class Camera:
         self.dy = -(target.rect.y + target.rect.h // 2 - HEIGHT // 2)
 
 
+class Interface(pygame.sprite.Sprite):
+    def __init__(self):
+        super().__init__(interface_group)
+        self.image = pygame.Surface((50, 25))
+        self.rect = self.image.get_rect()
+        self.rect.move(200, 10)
+
+    def apply(self, time):
+        self.image.fill((255, 255, 255))
+        font = pygame.font.Font(None, 30)
+        string_rendered = font.render(str(time // 60) + ":" + str(time % 60), 1,
+                                      pygame.Color('black'))
+        intro_rect = string_rendered.get_rect()
+        self.image.blit(string_rendered, intro_rect)
+
+
 text_screen(["Предыстория...",
              '',
              "Ура! Новогодние праздники начались!",
@@ -246,43 +270,52 @@ tiles_group = pygame.sprite.Group()
 boxes_group = pygame.sprite.Group()
 player_group = pygame.sprite.Group()
 other_group = pygame.sprite.Group()
-
+interface_group = pygame.sprite.Group()
 tile_width = tile_height = 64
 player, level_x, level_y = generate_level(load_level('map.txt'))
 screen2 = pygame.Surface((tile_width * level_x, tile_height * level_y))
 
-start_tile = Tile(10, 0, 0, other_group)
-camera = Camera()
-all_sprites.update()
-tiles_group.update()
-items_group.update()
-tiles_group.draw(screen2)
-items_group.draw(screen2)
-iterations = 0
-running = True
 
-while running:
-    screen.fill((0, 0, 0))
-    for event in pygame.event.get():
-        if event.type == pygame.QUIT:
-            running = False
-    player.move()
-    camera.update(player)
+def day():
+    time = 0
+    start_tile = Tile(10, 0, 0, other_group)
+    camera = Camera()
+    all_sprites.update()
+    tiles_group.update()
+    items_group.update()
+    tiles_group.draw(screen2)
+    items_group.draw(screen2)
+    iterations = 0
+    interface = Interface()
+    interface_group.update()
+    interface.apply(0)
+    while time < 600 * 45:
+        time += 1
+        interface.apply(time // 45)
+        screen.fill((0, 0, 0))
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                terminate()
+        player.move()
+        camera.update(player)
 
-    iterations = (iterations + 1) % 5
-    if iterations == 0:
-        animated_items_group.update()
+        iterations = (iterations + 1) % 5
+        if iterations == 0:
+            animated_items_group.update()
+            animated_items_group.draw(screen)
+        for sprite in all_sprites:
+            camera.apply(sprite)
+
+        other_group.draw(screen)
+        screen.blit(screen2, (start_tile.rect.x, start_tile.rect.y))
         animated_items_group.draw(screen)
-    for sprite in all_sprites:
-        camera.apply(sprite)
+        NPC_group.draw(screen)
+        player_group.draw(screen)
+        interface_group.draw(screen)
 
-    other_group.draw(screen)
-    screen.blit(screen2, (start_tile.rect.x, start_tile.rect.y))
-    animated_items_group.draw(screen)
-    NPC_group.draw(screen)
-    player_group.draw(screen)
+        clock.tick(FPS)
+        pygame.display.flip()
 
-    clock.tick(FPS)
-    pygame.display.flip()
 
+day()
 pygame.quit()
