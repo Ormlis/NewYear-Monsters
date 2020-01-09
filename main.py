@@ -60,14 +60,15 @@ def cut_sheet(sheet, rows, pix_x1=0, pix_y1=0, pix_x2=-1, pix_y2=-1):
 
 
 def text_screen(text):
-    # fon = pygame.transform.scale(load_image('fon.jpg'), (WIDTH, HEIGHT))
-    # screen.blit(fon, (0, 0))
     font = pygame.font.Font(None, 30)
     text_coord = 50
     for line in text:
         string_rendered = font.render(line, 1, pygame.Color('white'))
         intro_rect = string_rendered.get_rect()
+        blck_surf = pygame.Surface(intro_rect.size)
+        blck_surf.fill((0, 0, 0))
         text_coord += 10
+        screen.blit(blck_surf, (10, text_coord))
         intro_rect.top = text_coord
         intro_rect.x = 10
         text_coord += intro_rect.height
@@ -98,6 +99,18 @@ class AnimatedSprite(pygame.sprite.Sprite):
         self.image = self.frames[self.rotated][self.cur_frame_row][self.cur_frame]
 
 
+class Tree(AnimatedSprite):
+    def __init__(self, sheet, rows, x, y, *groups):
+        super().__init__(sheet, rows, x, y, *groups)
+        self.health = 0
+
+    def get_health(self):
+        return self.health
+
+    def damage(self, dmg):
+        self.health -= dmg
+
+
 class Tile(pygame.sprite.Sprite):
     images = cut_sheet(pygame.transform.scale(load_image('tiles3.png'), (64 * 9, 64 * 6)),
                        [9] * 6)[1][0]
@@ -106,7 +119,7 @@ class Tile(pygame.sprite.Sprite):
             map(lambda image: pygame.transform.scale(image, (64, 64)), images_list)),
             cut_sheet(load_image('Tileset.png'),
                       [3] * 3, pix_x2=16 * 3, pix_y2=16 * 3)[1][0]))
-    # transform all images to 64 * 64
+    # transform all images to 64 x 64
 
     images = (images[0] + images[1] + images[2] + images[3] + images[4] + images[5] + images2[0] +
               images2[1] + images2[2])
@@ -177,8 +190,63 @@ class NPC(AnimatedSprite):
         self.mask = pygame.mask.from_surface(self.image)
 
 
+class Spawner(pygame.sprite.Sprite):
+    def __init__(self, x, y, enemy_type, *groups, rotate=0):
+        super().__init__(all_sprites, *groups)
+        self.image = pygame.Surface((0, 0))
+        self.rect = self.image.get_rect().move(x * tile_width, y * tile_height)
+        self.enemy_type = enemy_type
+        self.rotate = rotate
+
+    def spawn_enemy(self):
+        Enemy(self.enemy_type, self.rect.x, self.rect.y, rotate=self.rotate)
+
+
+class SpawnerGroup(pygame.sprite.Group):
+    def __init__(self, *sprites):
+        super().__init__(*sprites)
+
+    def apply(self, enemy_type):
+        for spw in self:
+            spw.enemy_type = enemy_type
+
+    def spawn_enemies(self):
+        for spw in self:
+            spw.spawn_enemy()
+
+
+class Enemy(AnimatedSprite):
+    images = [[load_image('Enemy 06-1.png'), [3] * 4]]
+    damages = [1]
+    speed_x = [0, -1, 1, 0]
+    speed_y = [1, 0, 0, -1]
+
+    def __init__(self, enemy_type, x, y, *groups, rotate=0):
+        super().__init__(self.images[enemy_type][0], self.images[enemy_type][1], x, y,
+                         enemies_group, *groups)
+        self.iterations = 0
+        self.damage = self.damages[enemy_type]
+        self.vx = self.speed_x[rotate]
+        self.vy = self.speed_y[rotate]
+        self.rotated = rotate
+        self.mask = pygame.mask.from_surface(self.image)
+        self.frames = [[self.frames[0][0]], [self.frames[0][1]], [self.frames[0][2]],
+                       [self.frames[0][3]]]
+
+    def update(self):
+        self.rect.x += self.vx
+        self.rect.y += self.vy
+        if pygame.sprite.spritecollideany(self, animated_items_group, pygame.sprite.collide_mask):
+            print(1)
+            self.rect.x -= self.vx
+            self.rect.y -= self.vy
+            tree.damage(self.damage)
+            self.kill()
+        super().update()
+
+
 def generate_level(level):
-    new_player, x, y = None, None, None
+    new_player, new_tree, new_grandmother, x, y = None, None, None, None, None
     x_player = y_player = None
     for y in range(len(level)):
         for x in range(len(level[y])):
@@ -194,19 +262,25 @@ def generate_level(level):
                 Tile(16, x, y)
             elif level[y][x] == '=':
                 Tile(16, x, y)
-                AnimatedSprite(christmas_tree_image, [2], (x - 1) * tile_width,
-                               (y - 1) * tile_height, animated_items_group, boxes_group)
+                new_tree = Tree(christmas_tree_image, [2], (x - 1) * tile_width,
+                                (y - 1) * tile_height, animated_items_group, boxes_group)
+            elif level[y][x] == '+':
+                Tile(40, x, y)
+                Spawner(x, y, 0, spawners_group, rotate=2)
+            elif level[y][x] == '-':
+                Tile(40, x, y)
+                Spawner(x, y, 0, spawners_group, rotate=1)
             elif level[y][x] == "#":
                 Tile(6 * 9 + 4, x, y)
-                NPC(grandmother_image, x * tile_width, y * tile_height, boxes_group)
-                print(x, y)
+                new_grandmother = NPC(grandmother_image, x * tile_width, y * tile_height,
+                                      boxes_group)
             elif level[y][x] in ('K', "", "}"):
                 Tile(ord(level[y][x]) - ord('A'), x, y, boxes_group)
             else:
                 Tile(ord(level[y][x]) - ord('A'), x, y)
     new_player = Player(player_image, [13, 8, 10, 10, 10, 6, 4, 7] * 2, x_player * tile_width,
                         y_player * tile_height)
-    return new_player, x, y
+    return new_player, new_grandmother, new_tree, x, y
 
 
 class Camera:
@@ -223,15 +297,32 @@ class Camera:
         self.dy = -(target.rect.y + target.rect.h // 2 - HEIGHT // 2)
 
 
+class Interface(pygame.sprite.Sprite):
+    def __init__(self):
+        super().__init__(interface_group)
+        self.image = pygame.Surface((50, 25))
+        self.rect = self.image.get_rect()
+        self.rect.move(200, 10)
+
+    def apply(self, time):
+        self.image.fill((255, 255, 255))
+        font = pygame.font.Font(None, 30)
+        string_rendered = font.render(str(time // 60) + ":" + str(time % 60), 1,
+                                      pygame.Color('black'))
+        intro_rect = string_rendered.get_rect()
+        self.image.blit(string_rendered, intro_rect)
+
+
 text_screen(["Предыстория...",
              '',
              "Ура! Новогодние праздники начались!",
              "Вы как прилежный внук, конечно же,",
              "решили навестить вашу бабушку!",
-             "Однако, бабушке нужна ваша помощь,",
-             "Новый год находится в опасности,",
-             "Его хотят испортить злые монстры!",
-             "Прогоните их всех, пожалуйста!"])
+             ])
+#             "Однако, бабушке нужна ваша помощь,",
+#             "Новый год находится в опасности,",
+#             "Его хотят испортить злые монстры!",
+#             "Прогоните их всех, пожалуйста!"])
 
 player_image = pygame.transform.scale(load_image('player.png'), (64 * 13, 64 * 16))
 christmas_tree_image = load_image('christmas_tree_w_snow.png')
@@ -246,43 +337,70 @@ tiles_group = pygame.sprite.Group()
 boxes_group = pygame.sprite.Group()
 player_group = pygame.sprite.Group()
 other_group = pygame.sprite.Group()
+enemies_group = pygame.sprite.Group()
+interface_group = pygame.sprite.Group()
+spawners_group = SpawnerGroup()
 
 tile_width = tile_height = 64
-player, level_x, level_y = generate_level(load_level('map.txt'))
+player, tree, grandmother, level_x, level_y = generate_level(load_level('map.txt'))
 screen2 = pygame.Surface((tile_width * level_x, tile_height * level_y))
 
-start_tile = Tile(10, 0, 0, other_group)
-camera = Camera()
-all_sprites.update()
-tiles_group.update()
-items_group.update()
-tiles_group.draw(screen2)
-items_group.draw(screen2)
-iterations = 0
-running = True
 
-while running:
-    screen.fill((0, 0, 0))
-    for event in pygame.event.get():
-        if event.type == pygame.QUIT:
-            running = False
-    player.move()
-    camera.update(player)
+def game(seconds, func):
+    start_tile = Tile(10, 0, 0, other_group)
 
-    iterations = (iterations + 1) % 5
-    if iterations == 0:
-        animated_items_group.update()
+    camera = Camera()
+
+    all_sprites.update()
+    tiles_group.draw(screen2)
+    items_group.draw(screen2)
+
+    iterations = 0
+    time = 0
+
+    interface = Interface()
+    interface_group.update()
+    interface.apply(0)
+    while time < seconds * 45:
+        func(time)
+        time += 1
+        interface.apply(time // 45)
+        screen.fill((0, 0, 0))
+
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                terminate()
+        player.move()
+        camera.update(player)
+
+        iterations = (iterations + 1) % 5
+        if iterations == 0:
+            enemies_group.update()
+            animated_items_group.update()
+
+        for sprite in all_sprites:
+            camera.apply(sprite)
+
+        other_group.draw(screen)
+        screen.blit(screen2, (start_tile.rect.x, start_tile.rect.y))
         animated_items_group.draw(screen)
-    for sprite in all_sprites:
-        camera.apply(sprite)
+        NPC_group.draw(screen)
+        player_group.draw(screen)
+        interface_group.draw(screen)
+        enemies_group.draw(screen)
 
-    other_group.draw(screen)
-    screen.blit(screen2, (start_tile.rect.x, start_tile.rect.y))
-    animated_items_group.draw(screen)
-    NPC_group.draw(screen)
-    player_group.draw(screen)
+        clock.tick(FPS)
+        pygame.display.flip()
 
-    clock.tick(FPS)
-    pygame.display.flip()
 
+def day(time):
+    if time < 15 * 45:
+        return
+    elif time == 15 * 45:
+        text_screen(['Бабушка нуждается',
+                     'в вашей помощи!',
+                     'Скорее бегите к ней!'])
+
+
+game(600, day)
 pygame.quit()
