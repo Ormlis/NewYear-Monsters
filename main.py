@@ -1,4 +1,6 @@
 import sys
+from random import randint
+
 import pygame
 import os
 
@@ -63,12 +65,12 @@ def text_screen(text):
     font = pygame.font.Font(None, 30)
     text_coord = 50
     for line in text:
-        string_rendered = font.render(line, 1, pygame.Color('white'))
+        string_rendered = font.render(line, 1, pygame.Color('black'))
         intro_rect = string_rendered.get_rect()
-        blck_surf = pygame.Surface(intro_rect.size)
-        blck_surf.fill((0, 0, 0))
+        #blck_surf = pygame.Surface(intro_rect.size)
+        #blck_surf.fill((0, 0, 0))
         text_coord += 10
-        screen.blit(blck_surf, (10, text_coord))
+        #screen.blit(blck_surf, (10, text_coord))
         intro_rect.top = text_coord
         intro_rect.x = 10
         text_coord += intro_rect.height
@@ -78,7 +80,7 @@ def text_screen(text):
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 terminate()
-            elif event.type == pygame.KEYDOWN or event.type == pygame.MOUSEBUTTONDOWN:
+            elif event.type == pygame.MOUSEBUTTONDOWN:
                 return
         pygame.display.flip()
         clock.tick(FPS)
@@ -102,7 +104,7 @@ class AnimatedSprite(pygame.sprite.Sprite):
 class Tree(AnimatedSprite):
     def __init__(self, sheet, rows, x, y, *groups):
         super().__init__(sheet, rows, x, y, *groups)
-        self.health = 0
+        self.health = 30
 
     def get_health(self):
         return self.health
@@ -134,9 +136,13 @@ class FixedItem(pygame.sprite.Sprite):
     images = cut_sheet(load_image('Tileset.png'), [3, 3], 0, 16 * 7, 16 * 3, 16 * 9)[1][0]
     images = images[0] + images[1]
     images = list(map(lambda image: pygame.transform.scale(image, (48, 48)), images))
+    images.append(load_image('mandarin.png'))
 
-    def __init__(self, item_type, pos_x, pos_y, *groups, add_x=0, add_y=0):
-        super().__init__(all_sprites, items_group, boxes_group, *groups)
+    def __init__(self, item_type, pos_x, pos_y, *groups, add_x=0, add_y=0, collide=True):
+        if collide:
+            super().__init__(all_sprites, items_group, boxes_group, *groups)
+        else:
+            super().__init__(all_sprites, items_group, *groups)
         self.image = self.images[item_type]
         self.mask = pygame.mask.from_surface(self.image)
         self.rect = self.image.get_rect().move(tile_width * pos_x + add_x,
@@ -146,13 +152,16 @@ class FixedItem(pygame.sprite.Sprite):
 class Player(AnimatedSprite):
     def __init__(self, sheet, rows, x, y):
         super().__init__(sheet, rows, x, y, player_group)
-        self.v = 15
+        self.v = 10
         self.iterations = 0
         self.mask = pygame.mask.from_surface(self.image)
         self.frames = [self.frames[0][:8], self.frames[0][8:]]
+        self.attacked = False
 
     def move(self):
         keys = pygame.key.get_pressed()
+        if self.attacked or keys[pygame.K_f]:
+            self.attack()
         change_x = change_y = 0
         if keys[pygame.K_UP] ^ keys[pygame.K_DOWN]:
             change_y = -self.v if keys[pygame.K_UP] else self.v
@@ -167,16 +176,23 @@ class Player(AnimatedSprite):
             self.rect.x -= change_x
             change_x = 0
         if change_x < 0:
-            self.cur_frame_row = 1 if self.cur_frame_row == 0 else self.cur_frame_row
+            self.cur_frame_row = 1 if not self.attacked else self.cur_frame_row
             self.rotated = 1
         elif change_x > 0 or change_y:
-            self.cur_frame_row = 1 if self.cur_frame_row == 0 else self.cur_frame_row
+            self.cur_frame_row = 1 if not self.attacked else self.cur_frame_row
             self.rotated = 0
         else:
-            self.cur_frame_row = 0
+            self.cur_frame_row = 0 if not self.attacked else self.cur_frame_row
         self.iterations = (self.iterations + 4) % 20
         if self.iterations < 4:
             self.update()
+
+    def attack(self):
+        if not self.attacked:
+            self.cur_frame = 0
+            self.cur_frame_row = 2
+        self.attacked = (self.attacked + 1) % 40
+        pygame.sprite.spritecollide(self, enemies_group, True)
 
 
 class NPC(AnimatedSprite):
@@ -216,8 +232,9 @@ class SpawnerGroup(pygame.sprite.Group):
 
 
 class Enemy(AnimatedSprite):
-    images = [[load_image('Enemy 06-1.png'), [3] * 4]]
-    damages = [1]
+    images = [[pygame.transform.scale(load_image('Enemy 06-1.png'), (48 * 3, 48 * 4)), [3] * 4],
+              [pygame.transform.scale(load_image('Enemy 05-1.png'), (48 * 3, 48 * 4)), [3] * 4]]
+    damages = [1, 2]
     speed_x = [0, -1, 1, 0]
     speed_y = [1, 0, 0, -1]
 
@@ -342,11 +359,11 @@ interface_group = pygame.sprite.Group()
 spawners_group = SpawnerGroup()
 
 tile_width = tile_height = 64
-player, tree, grandmother, level_x, level_y = generate_level(load_level('map.txt'))
+player, grandmother, tree, level_x, level_y = generate_level(load_level('map.txt'))
 screen2 = pygame.Surface((tile_width * level_x, tile_height * level_y))
 
 
-def game(seconds, func):
+def run(seconds, func):
     start_tile = Tile(10, 0, 0, other_group)
 
     camera = Camera()
@@ -354,7 +371,6 @@ def game(seconds, func):
     all_sprites.update()
     tiles_group.draw(screen2)
     items_group.draw(screen2)
-
     iterations = 0
     time = 0
 
@@ -362,7 +378,6 @@ def game(seconds, func):
     interface_group.update()
     interface.apply(0)
     while time < seconds * 45:
-        func(time)
         time += 1
         interface.apply(time // 45)
         screen.fill((0, 0, 0))
@@ -370,6 +385,8 @@ def game(seconds, func):
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 terminate()
+            elif event.type == pygame.MOUSEBUTTONDOWN:
+                spawners_group.spawn_enemies()
         player.move()
         camera.update(player)
 
@@ -377,30 +394,152 @@ def game(seconds, func):
         if iterations == 0:
             enemies_group.update()
             animated_items_group.update()
-
+            other_group.update()
         for sprite in all_sprites:
             camera.apply(sprite)
 
-        other_group.draw(screen)
         screen.blit(screen2, (start_tile.rect.x, start_tile.rect.y))
         animated_items_group.draw(screen)
         NPC_group.draw(screen)
+        other_group.draw(screen)
         player_group.draw(screen)
-        interface_group.draw(screen)
         enemies_group.draw(screen)
+        interface_group.draw(screen)
+
+        if not func(time):
+            screen.fill((0, 0, 0))
+            return 0
 
         clock.tick(FPS)
         pygame.display.flip()
+    return 1
 
 
-def day(time):
-    if time < 15 * 45:
-        return
-    elif time == 15 * 45:
-        text_screen(['Бабушка нуждается',
-                     'в вашей помощи!',
-                     'Скорее бегите к ней!'])
+class QuestCookies:
+    def __init__(self, count, time):
+        self.count = count
+        self.count_cookies = 0
+        self.group = pygame.sprite.Group()
+        self.started = False
+        self.start_time = time
+
+    def check(self, time):
+        if self.started:
+            return 1
+        if time - self.start_time > 100:
+            return 2
+        if (player.rect.x - grandmother.rect.x) ** 2 + (
+                player.rect.y - grandmother.rect.y) ** 2 < 5000:
+            self.start(time)
+            return 1
+        return 0
+
+    def start(self, time):
+        text_screen(["Бабушка просит вас найти",
+                     "её потерянные мандарины!",
+                     "Пожалуйста помогите ей!",
+                     f'Их ровно {self.count} штук.'])
+        self.start_time = time
+        self.started = True
+        for i in range(self.count):
+            x = randint(-level_x, level_x)
+            y = randint(-level_y, level_y)
+            cookie = FixedItem(6, x, y, self.group, other_group, collide=False)
+            while (pygame.sprite.spritecollideany(cookie, boxes_group, False) or
+                   not len(pygame.sprite.spritecollide(cookie, tiles_group, False))):
+                cookie.rect.x = randint(-level_x * tile_width, level_x * tile_width)
+                cookie.rect.y = randint(-level_y * tile_height, level_y * tile_height)
+
+    def __call__(self, time):
+        if time - self.start_time > 60 * 45:
+            return 2
+        self.count_cookies += \
+            len(pygame.sprite.spritecollide(player, self.group, True, pygame.sprite.collide_mask))
+        return 1 if self.count == self.count_cookies else 0
+
+    def end(self):
+        text_screen(['Молодчинка!', 'Ты нашел все мандаринки!'])
 
 
-game(600, day)
+class QuestNight:
+    def __init__(self, num, time):
+        self.enemy_type = num
+        spawners_group.apply(num)
+        self.start_time = time
+        self.started = False
+        tree.health = 30
+
+    def check(self, time):
+        if self.started:
+            return 1
+        if time - self.start_time > 100:
+            return 2
+        if (player.rect.x - tree.rect.x) ** 2 + (
+                player.rect.y - tree.rect.y) ** 2 < 10000:
+            self.start(time)
+            return 1
+        return 0
+
+    def start(self, time):
+        self.started = True
+        self.start_time = time
+
+    def __call__(self, time):
+        black_surf = pygame.Surface(SIZE)
+        black_surf.fill((0, 0, 0))
+        black_surf.set_alpha(70)
+        screen.blit(black_surf, (0, 0))
+        if tree.get_health() <= 0:
+            return 2
+        if (time - self.start_time) % (35 * 45) == 0:
+            spawners_group.spawn_enemies()
+        if time - self.start_time == 300 * 45:
+            return 1
+        return 0
+
+    def end(self):
+        text_screen(['Поздравляем ночь закончена!'])
+
+
+class Game:
+    quests = [QuestCookies, QuestNight]
+
+    def __init__(self):
+        self.current_quest = None
+
+    def __call__(self, time):
+        if time < 5 * 45:
+            return True
+        if time == 5 * 45:
+            text_screen(['Бабушке срочно нужна ваша',
+                         'помощь, скорее к ней!'])
+            self.current_quest = self.quests[0](15, time)
+        if time == 15 * 45:
+            text_screen(["Срочно беги к ёлке!",
+                         'Кажется, её хотят сломать!'])
+            self.current_quest = self.quests[1](1, time)
+        if self.current_quest is not None:
+            chk = self.current_quest.check(time)
+            if chk == 0:
+                return True
+            elif chk == 2:
+                return False
+            res = self.current_quest(time)
+            if res == 1:
+                self.current_quest.end()
+                self.current_quest = None
+            return res != 2
+        return True
+
+
+while run(300 * 4, Game()) == 0:
+    text_screen(['К сожалению, вы проиграли',
+                 'Чтобы начать с начала',
+                 'Нажмите любую клавишу'])
+    for spr in all_sprites:
+        spr.kill()
+
+    player, grandmother, tree, level_x, level_y = generate_level(load_level('map.txt'))
+    screen2 = pygame.Surface((tile_width * level_x, tile_height * level_y))
+
 pygame.quit()
