@@ -1,5 +1,5 @@
 # NewYear-Monsters
-Game about New Year and Monsters, whick made with pygame
+Game about New Year and Monsters, which made with pygame
 
 
 Жанр: Action-adventure
